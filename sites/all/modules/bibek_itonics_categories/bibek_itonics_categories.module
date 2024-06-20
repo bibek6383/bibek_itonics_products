@@ -1,0 +1,201 @@
+<?php
+
+include_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'bibek_itonics_categories') . '/bibek_itonics_categories.schema.inc';
+
+/**
+ * Menu items for the CRUD operations.
+ */
+function bibek_itonics_categories_menu()
+{
+  $items = array();
+
+  $items['admin/categories'] = array(
+    'title' => 'Category',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('bibek_itonics_categories_overview_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['admin/category/add'] = array(
+    'title' => 'Add Category',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('bibek_itonics_categories_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+  );
+
+  $items['admin/category/%/edit'] = array(
+    'title' => 'Edit Category',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('bibek_itonics_categories_form', 2),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+  );
+
+  $items['admin/category/confirm-delete/%'] = array(
+    'title' => 'Delete Category',
+    'page callback' => 'bibek_itonics_confirm_delete_category_form',
+    'page arguments' => array(3),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer categories'),
+  );
+
+  $items['admin/category/delete/%'] = array(
+    'title' => 'Delete Category',
+    'page callback' => 'bibek_itonics_delete_category',
+    'page arguments' => array(3),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer categories'),
+  );
+
+  return $items;
+}
+
+/**
+ * Overview form.
+ */
+/**
+ * Form callback to display categories overview.
+ */
+function bibek_itonics_categories_overview_form($form, &$form_state) {
+  $form['create_button'] = my_custom_module_link('Create', 'admin/category/add');
+
+  $header = [
+    'id' => t('ID'),
+    'title' => t('Title'),
+    'operations' => t('Operation'),
+
+  ];
+  $query = db_select('bibek_itonics_categories', 'p')
+    ->fields('p')
+    ->extend('TableSort');
+
+  $result = $query->extend('TableSort')
+    ->orderByHeader($header)
+    ->range(0, 5)
+    ->execute();
+
+  $rows = [];
+  foreach ($result as $row) {
+    $rows[] = [
+      'id' => $row->id,
+      'title' => $row->name,
+      'operations' => l(t('Edit'), 'admin/category/' . $row->id . '/edit') . ' | ' . l(t('Delete'), 'admin/category/confirm-delete/' . $row->id)
+    ];
+  }
+  $form['category_table'] = [
+    '#theme' => 'table',
+    '#header' => $header,
+    '#rows' => $rows,
+    '#empty' => t('No Category found'),
+  ];
+  $form['pager'] = ['#markup' => theme('pager'),];
+  return $form;
+}
+
+/**
+ * Category form.
+ */
+function bibek_itonics_categories_form($form, &$form_state, $id = NULL)
+{
+  $category = db_select('bibek_itonics_categories', 'p')
+    ->fields('p')
+    ->condition('id', $id)
+    ->execute()
+    ->fetchAssoc();
+
+  $form['title'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Title'),
+    '#default_value' => isset($category['name']) ? $category['name'] : '',
+    '#required' => TRUE,
+  );
+  $form_state['id'] = $id;
+  $form['actions'] = array(
+    '#type' => 'actions',
+    '#attributes' => array('class' => array('form-actions')),
+  );
+
+  $button_label = isset($category['id']) ? 'Update Category' : 'Add Category';
+  $form['actions']['submit'] = my_custom_module_form_action_button('submit', $button_label);
+
+  $form['cancel'] = my_custom_module_link('Back', 'admin/categories');
+
+  // $form['#validate'][] = 'bibek_itonics_categories_form_validate';
+
+  return $form;
+}
+
+/**
+ * Form submit handler for saving categories.
+ */
+function bibek_itonics_categories_form_submit($form, &$form_state) {
+  $category = new stdClass();
+  $category->name = $form_state['values']['title'];
+  $id = $form_state['id'];
+
+  if (!empty($id)) {
+    $category->id = $id;
+    drupal_write_record('bibek_itonics_categories', $category, 'id');
+    drupal_set_message(t('Category updated successfully.'));
+  } else {
+    drupal_write_record('bibek_itonics_categories', $category);
+    drupal_set_message(t('Category added successfully.'));
+  }
+  drupal_goto('admin/categories');
+}
+
+
+function bibek_itonics_categories_form_validate($form, &$form_state) {
+  if (empty($form_state['values']['title'])) {
+    form_set_error('title', t('Title is required test.'));
+  }
+}
+
+
+/**
+ * Confirmation form callback for deleting a category.
+ */
+function bibek_itonics_confirm_delete_category_form($id) {
+  $form['#attributes']['class'][] = 'confirmation';
+
+  $form['message'] = my_custom_module_message('Are you sure you want to delete this category?');
+
+  $form['submit'] = my_custom_module_link('Delete', 'admin/category/delete/' . $id, [
+    'attributes' => [
+      'class' => ['button', 'button--danger'],
+    ],
+  ]);
+
+  $form['cancel'] = my_custom_module_link('Cancel', 'admin/categories');
+
+  return $form;
+}
+
+function bibek_itonics_delete_category($id) {
+  $has_products = db_select('bibek_itonics_product_categories', 'pc')
+    ->fields('pc', ['product_id'])
+    ->condition('pc.category_id', $id)
+    ->range(0, 1)
+    ->countQuery()
+    ->execute()
+    ->fetchField();
+
+  if ($has_products > 0) {
+    drupal_set_message(t('Cannot delete this category because it has associated products.'), 'error');
+    drupal_goto('admin/categories');
+  } else {
+    db_delete('bibek_itonics_categories')
+      ->condition('id', $id)
+      ->execute();
+
+    drupal_set_message(t('Category deleted successfully.'));
+    drupal_goto('admin/categories');
+  }
+}
+
+
+
+

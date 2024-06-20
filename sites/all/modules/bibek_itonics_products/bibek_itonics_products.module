@@ -1,0 +1,438 @@
+<?php
+
+include_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'bibek_itonics_products') . '/bibek_itonics_products.schema.inc';
+
+/**
+ * Implements hook_menu().
+ */
+function bibek_itonics_products_menu()
+{
+  $items = [];
+
+  $items['admin/products'] = [
+    'title' => 'Products',
+    'description' => 'Manage products.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['bibek_itonics_products_list'],
+    'access arguments' => ['administer products'],
+    'type' => MENU_NORMAL_ITEM,
+  ];
+
+  $items['admin/products/add'] = [
+    'title' => 'Add Product',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['bibek_itonics_products_add'],
+    'access arguments' => ['administer products'],
+  ];
+  $items['admin/products/%'] = [
+    'title' => 'View Product',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['bibek_itonics_products_view_form', 2],
+    'access arguments' => ['administer products'],
+  ];
+
+  // Edit product page.
+  $items['admin/products/%/edit'] = [
+    'title' => 'Edit Product',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['bibek_itonics_products_add', 2],
+    'access arguments' => ['administer products'],
+  ];
+
+  // Confirm Delete product page.
+  $items['admin/products/confirm-delete/%'] = [
+    'title' => 'Delete Product',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['bibek_itonics_confirm_delete_product_form', 3],
+    'access arguments' => ['administer products'],
+  ];
+
+  // Delete product page.
+  $items['admin/product/delete/%'] = [
+    'title' => 'Delete Product',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['bibek_itonics_delete_product', 3],
+    'access arguments' => ['administer products'],
+  ];
+  return $items;
+}
+
+function bibek_itonics_products_list($form, &$form_state)
+{
+  $form['create_button'] = my_custom_module_link('Create', 'admin/products/add');
+
+  $header = [
+    'id' => t('ID'),
+    'title' => t('Title'),
+    'image' => t('Image'),
+    'category' => t('Category'),
+    'type' => t('Type'),
+    'owner_email' => t('Owner Email'),
+    'expiry_date' => t('Expiry Date'),
+    'operations' => t('Operations')
+  ];
+  $query = db_select('bibek_itonics_products', 'p')
+    ->fields('p')
+    ->extend('TableSort')
+    ->orderByHeader($header);
+
+  $count_query = clone $query;
+  $total_items = $count_query->countQuery()->execute()->fetchField();
+  $limit = 10;
+
+  $query = $query->extend('PagerDefault')->limit($limit);
+  $result = $query->execute();
+
+  $rows = [];
+  foreach ($result as $row) {
+    $formatted_category = get_format_category($row->id);
+    $image_path = $row->image ? file_create_url(get_file_path() . $row->image) : '';
+    $rows[] = [
+      'id' => $row->id,
+      'title' => $row->title,
+      'image' => get_product_image($image_path, $row),
+      'category' => $formatted_category,
+      'type' => $row->type,
+      'owner_email' => $row->owner_email,
+      'expiry_date' => $row->expiry_date,
+      'operations' => l(t('View'), 'admin/products/' . $row->id) . ' | ' . l(t('Edit'), 'admin/products/' . $row->id . '/edit') . ' | ' . l(t('Delete'), 'admin/products/confirm-delete/' . $row->id)
+    ];
+  }
+  $form['product_table'] = [
+    '#theme' => 'table',
+    '#header' => $header,
+    '#rows' => $rows,
+    '#empty' => t('No products found (Add Product Category before adding product.)'),
+  ];
+  // $form['pager'] = ['#markup' => theme('pager'),];
+  $form['pager'] = array(
+    '#markup' => theme('pager', array('quantity' => $limit, 'total_items' => $total_items)),
+  );
+  return $form;
+}
+
+
+/**
+ * Form constructor for the product add page.
+ */
+function bibek_itonics_products_add($form, &$form_state, $id = null)
+{
+  $form_state['id'] = $id;
+  $product = db_select('bibek_itonics_products', 'p')
+    ->fields('p')
+    ->condition('id', $id)
+    ->execute()
+    ->fetchAssoc();
+  $categoryQuery = db_select('bibek_itonics_product_categories', 'p')
+    ->fields('p', ['category_id'])
+    ->condition('product_id', $id)
+    ->execute();
+  $categoryId = [];
+  foreach ($categoryQuery as $row) {
+    $categoryId[] = $row->category_id;
+  }
+
+  $form = [];
+  $query = db_select('bibek_itonics_categories', 'c')
+    ->fields('c', ['id', 'name'])
+    ->execute();
+  $categories = $query->fetchAllKeyed();
+
+  $form['title'] = [
+    '#type' => 'textfield',
+    '#title' => t('Title'),
+    '#required' => TRUE,
+    '#default_value' => $product['title'] ?? '',
+  ];
+  $form['image'] = [
+    '#type' => 'managed_file',
+    '#title' => t('Image'),
+    '#description' => t('Upload an image for the product.'),
+    '#upload_location' => get_file_path(),
+    '#upload_validators' => ['file_validate_extensions' => ['png gif jpg jpeg'],
+    ],
+  ];
+  $form['summary'] = [
+    '#type' => 'textarea',
+    '#title' => t('Summary'),
+    '#default_value' => $product['summary'] ?? '',
+  ];
+  $form['description'] = [
+    '#type' => 'text_format',
+    '#title' => t('Description'),
+    '#format' => 'filtered_html',
+    '#default_value' => $product['description'] ?? ''
+  ];
+  $form['category'] = [
+    '#type' => 'select',
+    '#title' => t('Category'),
+    '#options' => $categories,
+    '#required' => TRUE,
+    '#attributes' => ['class' => ['jquery-ui-multiselect']],
+    '#attached' => [
+      'js' => [
+        drupal_get_path('module', 'jquery_ui_multiselect') . '/jquery.ui.multiselect.js',], 'library' => ['jquery_ui_multiselect/jquery.ui.multiselect'
+      ]
+    ],
+    '#multiple' => TRUE,
+    '#default_value' => $categoryId ?? [],
+  ];
+  $form['type'] = [
+    '#type' => 'radios',
+    '#title' => t('Type'),
+    '#options' => [
+      'hardware' => t('Hardware'),
+      'software' => t('Software'),
+    ],
+    '#required' => TRUE,
+    '#default_value' => $product['type'] ?? '',
+  ];
+  $form['owner_email'] = [
+    '#type' => 'textfield',
+    '#title' => t('Owner Email'),
+    '#required' => TRUE,
+    '#element_validate' => ['bibek_itonics_products_email_validate'],
+    '#default_value' => $product['owner_email'] ?? '',
+  ];
+  $form['expiry_date'] = [
+    '#type' => 'date_popup',
+    '#title' => t('Expiry Date'),
+    '#date_format' => 'Y-m-d',
+    '#date_increment' => 1,
+    '#required' => TRUE,
+    '#default_value' => isset($product['expiry_date']) ? $product['expiry_date'] : null,
+  ];
+  $button_label = isset($product['id']) ? 'Update Product' : 'Add Product';
+  $form['actions']['submit'] = my_custom_module_form_action_button('submit', $button_label);
+
+  $form['back'] = my_custom_module_link('Back', 'admin/products', array(
+    'attributes' => array(
+      'class' => array('button', 'button--danger'),
+    ),
+  ));
+
+  return $form;
+}
+
+/**
+ * Custom validation function to validate expiry date.
+ */
+function bibek_itonics_products_add_validate($form, &$form_state) {
+  $expiry_date = $form_state['values']['expiry_date'];
+  $expiry_timestamp = strtotime($expiry_date);
+  $today_timestamp = strtotime(date('Y-m-d'));
+
+  if ($expiry_timestamp <= $today_timestamp) {
+    form_set_error('expiry_date', t('Expiry date must be after today\'s date.'));
+  }
+}
+
+/**
+ * Form submit handler for the product add form.
+ */
+function bibek_itonics_products_add_submit($form, &$form_state)
+{
+  $values = $form_state['values'];
+
+  $productData = [
+    'title' => $values['title'],
+    'summary' => $values['summary'],
+    'description' => $values['description']['value'],
+    'type' => $values['type'],
+    'owner_email' => $values['owner_email'],
+    'expiry_date' => $values['expiry_date'],
+  ];
+
+  $id = $form_state['id'];
+  if (!empty($values['image'])) {
+    $product = bibek_itonics_products_find($id);
+    if (!empty($product->image)) {
+      $file_path = get_file_path() . $product->image;
+
+      if (file_exists($file_path)) {
+        unlink($file_path);
+      } else {
+        drupal_set_message(t('File not found: @file', ['@file' => $file_path]), 'error');
+      }
+    }
+
+    $file = file_save_upload('image', array('file_validate_is_image' => [], 'file_validate_extensions' => ['png gif jpg jpeg']));
+    $unique_filename = '';
+    if ($file) {
+      $unique_filename = 'prod_' . uniqid() . '.' . pathinfo($file->filename, PATHINFO_EXTENSION);
+
+      if (!file_move($file, get_file_path() . $unique_filename, FILE_EXISTS_REPLACE))
+        form_set_error('image', t('Failed to move the uploaded file.'));
+    }
+
+    $productData['image'] = $unique_filename;
+  }
+
+  if (!empty($id)) {
+    $product_id = db_update('bibek_itonics_products')
+      ->fields($productData)
+      ->condition('id', $id)
+      ->execute();
+    drupal_set_message(t('Product updated successfully.'));
+  } else {
+    $product_id = db_insert('bibek_itonics_products')
+      ->fields($productData)
+      ->execute();
+    drupal_set_message(t('Product added successfully.'));
+  }
+
+  if (!empty($values['category'])) {
+    db_delete('bibek_itonics_product_categories')
+      ->condition('product_id', $product_id)
+      ->execute();
+
+    foreach ($values['category'] as $category_id) {
+      db_insert('bibek_itonics_product_categories')
+        ->fields([
+          'product_id' => $product_id,
+          'category_id' => $category_id,
+        ])->execute();
+    }
+  }
+
+  drupal_goto('admin/products');
+}
+
+function bibek_itonics_products_view_form($form, &$form_state, $product_id)
+{
+  $product = bibek_itonics_products_find($product_id);
+
+  $form['title'] = ['#markup' => '<h2>' . check_plain($product->title) . '</h2>',];
+  $form['image'] = [
+    '#markup' => isset($product->image) ?
+      theme('image', [
+        'path' => get_file_path() . $product->image,
+        'attributes' => [
+          'style' => 'width: 150px; height: 150px;',
+        ],
+      ])
+      : 'No Image',
+  ];
+  $form['summary'] = ['#markup' => '<p><b>Summary: </b>' . check_plain($product->summary) . '</p>',];
+  $form['description'] = ['#markup' => '<p><b>Description:  </b>' . check_plain($product->description) . '</p>',];
+  $form['type'] = ['#markup' => '<p><b>Type:  </b>' . ucfirst($product->type) . '</p>',];
+  $form['category'] = ['#markup' => '<p><b>Category:  </b>' . get_format_category($product->id) . '</p>',];
+  $form['owner_email'] = ['#markup' => '<p><b>Owner Email:  </b>' . $product->owner_email . '</p>',];
+  $form['expiry_date'] = ['#markup' => '<p><b>Expiry Date:  </b>' . date('Y, M-d', strtotime($product->expiry_date)) . '</p>',];
+
+  $form['back'] = my_custom_module_link('Back', 'admin/products');
+  return $form;
+}
+
+
+/**
+ * Confirmation form callback for deleting a product.
+ */
+function bibek_itonics_confirm_delete_product_form($form, &$form_state, $id = null)
+{
+  $form['#attributes']['class'][] = 'confirmation';
+  $form['message'] = my_custom_module_message('Are you sure you want to delete this product?');
+
+  $form['submit'] = my_custom_module_link('Delete', 'admin/product/delete/' . $id, array(
+    'attributes' => array(
+      'class' => array('button', 'button--danger'),
+    ),
+  ));
+
+  $form['cancel'] = my_custom_module_link('Cancel', 'admin/products');
+
+  return $form;
+}
+
+function bibek_itonics_delete_product($form, &$form_state, $id)
+{
+  $product = bibek_itonics_products_find($id);
+  if (!empty($product->image)) {
+    $file_path = get_file_path() . $product->image;
+
+    if (file_exists($file_path)) {
+      unlink($file_path);
+    } else {
+      drupal_set_message(t('File not found: @file', ['@file' => $file_path]), 'error');
+    }
+  }
+
+  db_delete('bibek_itonics_products')
+    ->condition('id', $id)
+    ->execute();
+
+  drupal_set_message(t('Product deleted successfully.'));
+  drupal_goto('admin/products');
+
+}
+
+
+function get_product_image($image_path, $row)
+{
+  return $image_path ? theme('image', [
+    'path' => $image_path,
+    'alt' => $row->title,
+    'attributes' => [
+      'style' => 'width: 80px; height:80px;'
+    ]
+  ]) : 'N/A';
+}
+
+/**
+ * Fetches and formats categories associated with a product.
+ *
+ * @param int $product_id
+ *   The ID of the product.
+ *
+ * @return string
+ *   An array of formatted category names.
+ */
+function get_format_category($product_id)
+{
+  $categories = [];
+  $query = db_select('bibek_itonics_product_categories', 'pc')
+    ->fields('pc', ['category_id'])
+    ->condition('pc.product_id', $product_id)
+    ->execute();
+
+  foreach ($query as $row) {
+    $category_name = db_select('bibek_itonics_categories', 'c')
+      ->fields('c', ['name'])
+      ->condition('c.id', $row->category_id)
+      ->execute()
+      ->fetchField();
+
+    if ($category_name) {
+      $categories[] = $category_name;
+    }
+  }
+
+  return implode(', ', $categories);
+}
+
+function bibek_itonics_products_find($product_id)
+{
+  $query = db_select('bibek_itonics_products', 'p')
+    ->fields('p')
+    ->condition('p.id', $product_id)
+    ->execute()
+    ->fetchObject();
+
+  return $query;
+}
+
+function get_file_path()
+{
+  return 'public://productImages/';
+}
+
+/**
+ * Validation handler for the owner_email field.
+ */
+function bibek_itonics_products_email_validate($element, &$form_state, $form)
+{
+  $value = $form_state['values']['owner_email'];
+  if (!filter_var($value, FILTER_VALIDATE_EMAIL)) {
+    form_error($element, t('The email address is not valid.'));
+  }
+}

@@ -1,0 +1,5 @@
+name = My Custom Module
+description = Custom module for helper functions
+core = 7.x
+package = Custom
+version = "7.x-1.0"

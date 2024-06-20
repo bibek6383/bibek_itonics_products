@@ -1,0 +1,7 @@
+name = "ITONICS Products"
+description = "Module to manage products for ITONICS."
+core = 7.x
+package = Custom
+version = "7.x-1.0"
+dependencies[] = field
+files[] = bibek_itonics_products.module

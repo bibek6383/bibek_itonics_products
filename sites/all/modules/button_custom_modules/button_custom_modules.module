@@ -1,0 +1,75 @@
+<?php
+
+/**
+ * Implements hook_help().
+ */
+function my_custom_module_help($path, $arg)
+{
+  switch ($path) {
+    case 'admin/help#my_custom_module':
+      return '<p>' . t('This is the My Custom Module module.') . '</p>';
+  }
+}
+
+/**
+ * Helper function to generate a cancel link.
+ *
+ * @param string $text
+ *   The text for the link.
+ * @param string $path
+ *   The path for the link.
+ *
+ * @return array
+ *   A render array containing the markup for the cancel link.
+ */
+function my_custom_module_link($text, $path, $attribute=[])
+{
+  return [
+    '#markup' => l(t($text), $path, $attribute),
+  ];
+}
+
+/**
+ * Helper function to generate a message.
+ *
+ * @param string $message
+ *   The message text.
+ *
+ * @return array
+ *   A render array containing the markup for the message.
+ */
+function my_custom_module_message($message) {
+  return [
+    '#markup' => '<p>' . t($message) . '</p>',
+  ];
+}
+
+/**
+ * Helper function to generate a form action button.
+ *
+ * @param string $type
+ *   The type of the form element (e.g., 'submit', 'button').
+ * @param string $value
+ *   The text for the button.
+ * @param array $attributes
+ *   Additional attributes for the button.
+ *
+ * @return array
+ *   A render array containing the form element.
+ */
+function my_custom_module_form_action_button($type, $value, array $attributes = []) {
+  $button = [
+    '#type' => $type,
+    '#value' => t($value),
+  ];
+
+  if (!empty($attributes)) {
+    foreach ($attributes as $key => $attr) {
+      $button[$key] = $attr;
+    }
+  }
+
+  return $button;
+}
+
+

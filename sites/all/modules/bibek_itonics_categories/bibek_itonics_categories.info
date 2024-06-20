@@ -1,0 +1,6 @@
+name = "ITONICS Product Category"
+description = "Module to manage products category for ITONICS."
+core = 7.x
+package = Custom
+version = "7.x-1.0"
+dependencies[] = field
